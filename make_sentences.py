@@ -2,11 +2,9 @@ from nltk.tokenize import sent_tokenize, word_tokenize
 from collections import defaultdict
 from nltk.stem.snowball import SnowballStemmer
 import os
-from string import punctuation
 from flashtext.keyword import KeywordProcessor
 from nltk.corpus import stopwords
 import nltk
-import time
 import spacy
 import re
 from multiprocessing import Pool
@@ -54,7 +52,7 @@ def do(infile, outfile):
                     continue
                 path = os.path.join(root, file)
                 with open(path, 'r') as source:
-                    text = source.read()
+                    text = source.read().strip()
                     text = text.split('\n')
                     for paragraph in text:
                         sentences = sent_tokenize(paragraph, language='russian')
@@ -63,11 +61,11 @@ def do(infile, outfile):
                                 continue
 
                             tokens = []
-
-                            for tok in word_tokenize(sentence):
-                                if tok not in russian_stopwords and tok not in punctuation:
+                            for tok in word_tokenize(sentence, language='russian'):
+                                if tok not in russian_stopwords and tok.isalnum():
                                     tokens.append(tok)
-                            if len(tokens) < 5:
+
+                            if len(tokens) < 10:
                                 continue
 
                             if sentence.startswith('- ') or sentence.startswith('– '):
@@ -92,6 +90,6 @@ def do(infile, outfile):
 
 if __name__ == '__main__':
     pool = Pool(3)
-    pool.starmap(do, [('data/201101','result_1.txt'),
-                  ('data/201102', 'result_2.txt'),
-                  ('data/201103', 'result_3.txt')])
+    pool.starmap(do, [('data/201101','tmp/result_1.txt'),
+                  ('data/201102', 'tmp/result_2.txt'),
+                  ('data/201103', 'tmp/result_3.txt')])
