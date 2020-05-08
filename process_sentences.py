@@ -69,8 +69,6 @@ def find_all(sentences, nouns):
         for t in tokens:
             if t in nouns:
                 s2t[sentence].update({t: nouns[t]})
-        if 'ЗА ДОЛГ ПО АЛИМЕНТАМ «НАСТУЧАТ»МИЛИЦИИ' in sentence:
-            print(s2t)
     return s2t
 
 
