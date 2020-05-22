@@ -1,16 +1,10 @@
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
-from scipy.sparse import save_npz, load_npz
 from nltk.corpus import stopwords
 from nltk.tokenize import word_tokenize
-import numpy as np
 import pymorphy2
-import matplotlib.pyplot as plt
 import datetime
-from collections import defaultdict
-import os
 
-READ = True
 
 def tokenizer(sentence):
     sentence = word_tokenize(sentence, language='russian')
@@ -20,25 +14,22 @@ def tokenizer(sentence):
 
 morph = pymorphy2.MorphAnalyzer()
 russian_stopwords = stopwords.words("russian")
-texts = []
-
 
 print(datetime.datetime.now().time(), '\tReading data...')
 
-with open('data/upd_v4.txt') as f:
+texts = []
+with open('data/upd_v5.txt') as f:
     for i, line in enumerate(f):
         line = line.strip()
         texts.append(line)
 
-if READ:
-    print(datetime.datetime.now().time(), '\tvectorizing...')
 
-    vec = TfidfVectorizer(tokenizer=tokenizer)
-    X = vec.fit_transform(texts)
+print(datetime.datetime.now().time(), '\tvectorizing...')
 
-    save_npz('data/vecs.npz', X)
-else:
-    X = load_npz('data/vecs.npz')
+vec = TfidfVectorizer(tokenizer=tokenizer)
+X = vec.fit_transform(texts)
+
+
 
 print(datetime.datetime.now().time(), '\tcos...')
 
@@ -51,7 +42,7 @@ for i in range(X.shape[0] - 1):
     similarities = cosine_similarity(X[i], X[i+1:])
     idx = []
     for j, sim in enumerate(similarities[0]):
-        if sim > 0.85:
+        if sim > 0.4:
             idx.append(j)
     if idx:
         idxs[i] = idx

@@ -11,7 +11,7 @@ lc = defaultdict(int)
 pc = defaultdict(set)
 nc = defaultdict(set)
 
-with open('data/upd_v4.txt') as f:
+with open('data/upd_v5.txt') as f:
     for i, line in enumerate(f):
         sentence, targets = line.strip().split('\t')
         sentence = sentence.strip()
