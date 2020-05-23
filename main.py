@@ -3,22 +3,27 @@ from pytorch_pretrained_bert import BertTokenizer, BertModel
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 from itertools import islice
+from sklearn.metrics import confusion_matrix
+import torch.optim as optim
+import numpy as np
+import matplotlib.pyplot as plt
+import json
+from sklearn.model_selection import KFold
 
 
 class myDataset(Dataset):
-    def __init__(self, file):
+    def __init__(self, file, idx=None):
         self.file = file
         with open(file) as f:
-            for i, l in enumerate(f):
-                pass
-        self.length = i + 1
+            self.content = f.read().split('\n')
+        if idx is not None:
+            self.content = [self.content[i] for i in idx]
 
     def __len__(self):
-        return self.length
+        return len(self.content)
 
     def __getitem__(self, idx):
-        with open(self.file) as f:
-            line = next(islice(f, idx, idx + 1)).strip()
+        line = self.content[idx]
         line, labels = line.split('\t')
         labels = labels.split('|')
         for i, _ in enumerate(labels):
@@ -37,7 +42,7 @@ class Classifier(nn.Module):
     def __init__(self, bert_path, num_cats=2):
         super().__init__()
         self.bert = BertModel.from_pretrained(bert_path, cache_dir=None)
-        num_outputs =  num_cats
+        num_outputs = num_cats
         self.fc = nn.Linear(768, num_outputs)
 
     def forward(self, x):
@@ -74,7 +79,7 @@ def get_tensors(batch, tokenizer, max_length=512):
                 cur_ml.append(-1)
         s.append(tokenizer.convert_tokens_to_ids(tokens))
         masked_labels.append(cur_ml)
-    return torch.LongTensor(s), torch.LongTensor(masked_labels)
+    return torch.LongTensor(s).cuda(), torch.LongTensor(masked_labels).cuda()
 
 
 
@@ -98,19 +103,115 @@ def collate_fn(batch):
     return lines, labels, starts, ends
 
 
-ds = myDataset('result_1.txt')
-dl = DataLoader(ds, batch_size=2, shuffle=True, num_workers=4, collate_fn=collate_fn)
+def remove_ignored(pred, gt):
+    idx = gt != -1
+    pred = pred[idx]
+    gt = gt[idx]
+    return pred, gt
+
+
+def get_metrics(pred, gt):
+    conf = confusion_matrix(gt, pred, [0, 1])
+    metrics = {}
+    TP = conf[1, 1]
+    TN = conf[0, 0]
+    FP = conf[0, 1]
+    FN = conf[1, 0]
+    if TP + FP == 0:
+        prec = 0
+    else:
+        prec = TP / (TP + FP)
+    if TP + FP == 0:
+        rec = 0
+    else:
+        rec = TP / (TP + FN)
+    if prec == rec == 0:
+        metrics['F1'] = 0
+    else:
+        metrics['F1'] = 2 * prec * rec / (prec + rec)
+    metrics['precision'] = prec
+    metrics['recall'] = rec
+    metrics['accuracy'] = (TP + TN) / (TP + FP + TN + FN)
+    return metrics
+
+
+
+def train(loader, val_loader=None, num_epochs=10, logfile=None):
+    loss_history = []
+    loss_val = []
+    metrics_history = []
+    running_loss = 0.0
+    loss_track = []
+    for epoch in range(num_epochs):
+        loss_epoch = []
+        for i, batch in enumerate(loader):
+            texts, labels = get_tensors(batch, tok)
+            opt.zero_grad()
+            output = cls(texts)
+            loss = loss_fct(output.view(-1, 2), labels.view(-1))
+            loss.backward()
+            opt.step()
+            running_loss += loss.item()
+            if i % 10 == 9:
+                print('[%d, %5d] loss: %.3f' %
+                  (epoch + 1, i + 1, running_loss / 10))
+                loss_epoch.append(running_loss / 10)
+                loss_track.append(running_loss / 10)
+                running_loss = 0.0
+        loss_history.append(loss_epoch)
+        plt.plot(loss_track)
+        if val_loader is not None:
+            metrics, loss = validate(val_loader)
+            loss_val.append(loss)
+            metrics_history.append(metrics)
+            plt.scatter([len(loss_track) * i for i in range(epoch + 1)], [loss_val])
+        plt.grid()
+        plt.show()
+
+    if logfile is not  None:
+        with open(logfile, 'w') as f:
+            f.write('---val metrics\n')
+            for m in metrics_history:
+                f.write(json.dumps(m))
+                f.write('\n')
+            f.write('---val loss\n')
+            for l in loss_val:
+                f.write(str(l) + '\n')
+            f.write('---train loss')
+            for l in loss_track:
+                f.write(str(l) + '\n')
+
+
+def validate(loader):
+    with torch.no_grad():
+        y_pred = []
+        y_true = []
+        loss_history = []
+        for i, batch in enumerate(loader):
+            texts, labels = get_tensors(batch, tok)
+            output = cls(texts)
+            loss = loss_fct(output, labels)
+            loss_history.append(loss.item())
+            pred, labels = remove_ignored(output.argmax(dim=2), labels)
+            y_pred.extend(pred.detach())
+            y_true.extend(labels.detach())
+    metrics = get_metrics(y_pred, y_true)
+    return metrics, np.mean(loss_history)
 
 tok = BertTokenizer.from_pretrained('weights/ru/')
 cls = Classifier('weights/ru/')
-
+cls.cuda()
 loss_fct = nn.CrossEntropyLoss(ignore_index=-1)
+opt = optim.Adam(cls.parameters())
 
-with torch.no_grad():
-    for i, batch in enumerate(dl):
-        tokens, labels = get_tensors(batch, tok)
-        output = cls(tokens)
-        print(output.size(), labels.size())
-        print(loss_fct(output.view(-1, 2), labels.view(-1)))
+kf = KFold(n_splits=5, shuffle=True, random_state=23)
+c = 0
+for train_idx, test_idx in kf.split(range(200)):
+    train_ds = myDataset('data/dataset.txt', train_idx)
+    test_ds = myDataset('data/dataset.txt', test_idx)
+    train_dl = DataLoader(train_ds, batch_size=1, shuffle=True, num_workers=1, collate_fn=collate_fn)
+    test_dl = DataLoader(test_ds, batch_size=1, shuffle=True, num_workers=1, collate_fn=collate_fn)
+    train(train_dl, test_dl, logfile='logs_' + str(c) + '.txt')
+    c += 1
 
-        exit(0)
+
