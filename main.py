@@ -173,10 +173,10 @@ def train(model, loader, optimizer, loss_fct, number, val_loader=None, num_epoch
             for m in metrics_history:
                 f.write(json.dumps(m))
                 f.write('\n')
-            f.write('---val loss\n')
+            f.write('\n---val loss\n')
             for l in loss_val:
                 f.write(str(l) + '\n')
-            f.write('---train loss')
+            f.write('\n---train loss\n')
             for l in loss_track:
                 f.write(str(l) + '\n')
 
@@ -209,8 +209,8 @@ for train_idx, test_idx in kf.split(range(18851)):
     opt = optim.Adam(cls.parameters())
     train_ds = myDataset('data/dataset.txt', train_idx)
     test_ds = myDataset('data/dataset.txt', test_idx)
-    train_dl = DataLoader(train_ds, batch_size=16, shuffle=True, num_workers=1, collate_fn=collate_fn)
-    test_dl = DataLoader(test_ds, batch_size=32, shuffle=True, num_workers=1, collate_fn=collate_fn)
+    train_dl = DataLoader(train_ds, batch_size=10, shuffle=True, num_workers=4, collate_fn=collate_fn)
+    test_dl = DataLoader(test_ds, batch_size=20, shuffle=True, num_workers=4, collate_fn=collate_fn)
     train(cls, train_dl, opt, loss_fct, test_dl, c, logfile='logs/' + str(c) + '.txt')
     c += 1
 
