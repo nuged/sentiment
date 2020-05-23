@@ -136,7 +136,7 @@ def get_metrics(pred, gt):
 
 
 
-def train(loader, val_loader=None, num_epochs=10, logfile=None):
+def train(model, loader, optimizer, loss_fct, number, val_loader=None, num_epochs=10, logfile=None):
     loss_history = []
     loss_val = []
     metrics_history = []
@@ -146,11 +146,11 @@ def train(loader, val_loader=None, num_epochs=10, logfile=None):
         loss_epoch = []
         for i, batch in enumerate(loader):
             texts, labels = get_tensors(batch, tok)
-            opt.zero_grad()
-            output = cls(texts)
+            optimizer.zero_grad()
+            output = model(texts)
             loss = loss_fct(output.view(-1, 2), labels.view(-1))
             loss.backward()
-            opt.step()
+            optimizer.step()
             running_loss += loss.item()
             if i % 10 == 9:
                 print('[%d, %5d] loss: %.3f' %
@@ -161,14 +161,13 @@ def train(loader, val_loader=None, num_epochs=10, logfile=None):
         loss_history.append(loss_epoch)
         plt.plot(loss_track)
         if val_loader is not None:
-            metrics, loss = validate(val_loader)
+            metrics, loss = validate(model, val_loader, loss_fct)
             loss_val.append(loss)
             metrics_history.append(metrics)
-            plt.scatter([len(loss_track) * i for i in range(epoch + 1)], [loss_val])
-        plt.grid()
-        plt.show()
+            print('\n', metrics, '\n')
+        torch.save(model.state_dict(), 'models/model-{}-ep-{}'.format(number, epoch))
 
-    if logfile is not  None:
+    if logfile is not None:
         with open(logfile, 'w') as f:
             f.write('---val metrics\n')
             for m in metrics_history:
@@ -182,14 +181,14 @@ def train(loader, val_loader=None, num_epochs=10, logfile=None):
                 f.write(str(l) + '\n')
 
 
-def validate(loader):
+def validate(model, loader, loss_fct):
     with torch.no_grad():
         y_pred = []
         y_true = []
         loss_history = []
         for i, batch in enumerate(loader):
             texts, labels = get_tensors(batch, tok)
-            output = cls(texts)
+            output = model(texts)
             loss = loss_fct(output.view(-1, 2), labels.view(-1))
             loss_history.append(loss.item())
             pred, labels = remove_ignored(output.argmax(dim=2), labels)
@@ -199,18 +198,19 @@ def validate(loader):
     return metrics, np.mean(loss_history)
 
 tok = BertTokenizer.from_pretrained('weights/ru/')
-cls = Classifier('weights/ru/')
-cls.cuda()
 loss_fct = nn.CrossEntropyLoss(ignore_index=-1)
-opt = optim.Adam(cls.parameters())
 
 kf = KFold(n_splits=5, shuffle=True, random_state=23)
 c = 0
-for train_idx, test_idx in kf.split(range(200)):
+for train_idx, test_idx in kf.split(range(18851)):
+    torch.manual_seed(0)
+    cls = Classifier('weights/ru/')
+    cls.cuda()
+    opt = optim.Adam(cls.parameters())
     train_ds = myDataset('data/dataset.txt', train_idx)
     test_ds = myDataset('data/dataset.txt', test_idx)
-    train_dl = DataLoader(train_ds, batch_size=1, shuffle=True, num_workers=1, collate_fn=collate_fn)
-    test_dl = DataLoader(test_ds, batch_size=1, shuffle=True, num_workers=1, collate_fn=collate_fn)
-    train(train_dl, test_dl, logfile='logs_' + str(c) + '.txt')
+    train_dl = DataLoader(train_ds, batch_size=16, shuffle=True, num_workers=1, collate_fn=collate_fn)
+    test_dl = DataLoader(test_ds, batch_size=32, shuffle=True, num_workers=1, collate_fn=collate_fn)
+    train(cls, train_dl, opt, loss_fct, test_dl, c, logfile='logs/' + str(c) + '.txt')
     c += 1
 
