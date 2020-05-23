@@ -190,7 +190,7 @@ def validate(loader):
         for i, batch in enumerate(loader):
             texts, labels = get_tensors(batch, tok)
             output = cls(texts)
-            loss = loss_fct(output, labels)
+            loss = loss_fct(output.view(-1, 2), labels.view(-1))
             loss_history.append(loss.item())
             pred, labels = remove_ignored(output.argmax(dim=2), labels)
             y_pred.extend(pred.detach())
