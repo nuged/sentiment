@@ -193,8 +193,8 @@ def validate(loader):
             loss = loss_fct(output.view(-1, 2), labels.view(-1))
             loss_history.append(loss.item())
             pred, labels = remove_ignored(output.argmax(dim=2), labels)
-            y_pred.extend(pred.detach())
-            y_true.extend(labels.detach())
+            y_pred.extend(pred.cpu().detach())
+            y_true.extend(labels.cpu().detach())
     metrics = get_metrics(y_pred, y_true)
     return metrics, np.mean(loss_history)
 
@@ -213,5 +213,4 @@ for train_idx, test_idx in kf.split(range(200)):
     test_dl = DataLoader(test_ds, batch_size=1, shuffle=True, num_workers=1, collate_fn=collate_fn)
     train(train_dl, test_dl, logfile='logs_' + str(c) + '.txt')
     c += 1
-
 
