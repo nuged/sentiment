@@ -15,7 +15,7 @@ class myDataset(Dataset):
     def __init__(self, file, idx=None):
         self.file = file
         with open(file) as f:
-            self.content = f.read().split('\n')
+            self.content = f.read().strip().split('\n')
         if idx is not None:
             self.content = [self.content[i] for i in idx]
 
@@ -24,7 +24,14 @@ class myDataset(Dataset):
 
     def __getitem__(self, idx):
         line = self.content[idx]
-        line, labels = line.split('\t')
+        try:
+            line, labels = line.split('\t')
+        except ValueError:
+            print(line)
+            print(idx)
+            print(len(self.content))
+            print(self.content)
+            exit(0)
         labels = labels.split('|')
         for i, _ in enumerate(labels):
             labels[i] = labels[i].split(',')
@@ -43,11 +50,14 @@ class Classifier(nn.Module):
         super().__init__()
         self.bert = BertModel.from_pretrained(bert_path, cache_dir=None)
         num_outputs = num_cats
-        self.fc = nn.Linear(768, num_outputs)
+        self.fc = nn.Linear(768, 2)
+        self.last = nn.Linear(10, 2)
 
     def forward(self, x):
         x = self.bert(x, output_all_encoded_layers=False)[0]
-        return self.fc(x)
+        x = nn.Dropout(p=0.5)(x)
+        x = self.fc(x)
+        return x
 
 
 def replace(text, subtext, start, end):
@@ -55,7 +65,7 @@ def replace(text, subtext, start, end):
 
 labels_to_idx = {'pos' : 1, 'neg' : 0}
 
-def get_tensors(batch, tokenizer, max_length=512):
+def get_tensors(batch, tokenizer, max_length=256):
     texts, labels, starts, ends = batch
     s = []
     masked_labels = []
@@ -68,7 +78,7 @@ def get_tensors(batch, tokenizer, max_length=512):
         if diff > 0:
             tokens.extend(['[PAD]']*diff)
         elif diff < 0:
-            tokens = tokens[:max_length]
+            tokens = tokens[:max_length - 1] + ['[SEP]']
         c = 0
         cur_ml = []
         for tok in tokens:
@@ -136,7 +146,7 @@ def get_metrics(pred, gt):
 
 
 
-def train(model, loader, optimizer, loss_fct, number, val_loader=None, num_epochs=10, logfile=None):
+def train(model, loader, optimizer, loss_fct, number, val_loader=None, num_epochs=4, logfile=None):
     loss_history = []
     loss_val = []
     metrics_history = []
@@ -151,21 +161,22 @@ def train(model, loader, optimizer, loss_fct, number, val_loader=None, num_epoch
             loss = loss_fct(output.view(-1, 2), labels.view(-1))
             loss.backward()
             optimizer.step()
-            running_loss += loss.item()
+            loss = loss.item()
+            running_loss += loss
             if i % 10 == 9:
                 print('[%d, %5d] loss: %.3f' %
                   (epoch + 1, i + 1, running_loss / 10))
-                loss_epoch.append(running_loss / 10)
-                loss_track.append(running_loss / 10)
                 running_loss = 0.0
+            loss_epoch.append(loss)
+            loss_track.append(loss)
+        loss_track.append(-999999)
         loss_history.append(loss_epoch)
-        plt.plot(loss_track)
         if val_loader is not None:
             metrics, loss = validate(model, val_loader, loss_fct)
             loss_val.append(loss)
             metrics_history.append(metrics)
             print('\n', metrics, '\n')
-        torch.save(model.state_dict(), 'models/model-{}-ep-{}'.format(number, epoch))
+        torch.save(model.state_dict(), 'models/model-{}-ep-{}.pth'.format(number, epoch))
 
     if logfile is not None:
         with open(logfile, 'w') as f:
@@ -202,15 +213,16 @@ loss_fct = nn.CrossEntropyLoss(ignore_index=-1)
 
 kf = KFold(n_splits=5, shuffle=True, random_state=23)
 c = 0
-for train_idx, test_idx in kf.split(range(18851)):
+for train_idx, test_idx in kf.split(range(18850)):
     torch.manual_seed(0)
     cls = Classifier('weights/ru/')
     cls.cuda()
-    opt = optim.Adam(cls.parameters())
+    opt = optim.Adam(cls.parameters(), lr=1e-5)
     train_ds = myDataset('data/dataset.txt', train_idx)
     test_ds = myDataset('data/dataset.txt', test_idx)
-    train_dl = DataLoader(train_ds, batch_size=10, shuffle=True, num_workers=4, collate_fn=collate_fn)
-    test_dl = DataLoader(test_ds, batch_size=20, shuffle=True, num_workers=4, collate_fn=collate_fn)
-    train(cls, train_dl, opt, loss_fct, test_dl, c, logfile='logs/' + str(c) + '.txt')
+    print(len(train_ds), len(test_ds))
+    train_dl = DataLoader(train_ds, batch_size=32, shuffle=True, num_workers=4, collate_fn=collate_fn)
+    test_dl = DataLoader(test_ds, batch_size=32, shuffle=True, num_workers=4, collate_fn=collate_fn)
+    train(cls, train_dl, opt, loss_fct, c, test_dl, logfile='logs/' + str(c) + '.txt')
     c += 1
 
